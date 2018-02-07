@@ -31,9 +31,6 @@ public:
   ///* predicted sigma points matrix
   MatrixXd Xsig_pred_;
 
-  ///* time when the state is true, in us
-  long long time_us_;
-
   ///* Process noise standard deviation longitudinal acceleration in m/s^2
   double std_a_;
 
@@ -66,6 +63,14 @@ public:
 
   ///* Sigma point spreading parameter
   double lambda_;
+
+  ///* timestampe of previous measurement, in us
+  long long previous_timestamp_;
+
+  ///* NIS values
+  bool use_NIS_;
+  std::vector<double> radar_NIS_;
+  std::vector<double> lidar_NIS_;
 
 
   /**
@@ -102,6 +107,27 @@ public:
    * @param meas_package The measurement at k+1
    */
   void UpdateRadar(MeasurementPackage meas_package);
+
+  /**
+   * Shared part that updates the state and the state covariance matrix
+   * Call by both the Lidar and Radar updates
+   * @param meas_package The measurement at k+1
+   */
+  void UpdateCommon(MeasurementPackage meas_package);
+
+  /**
+   * Convert state vector to Lidar measurement space vector
+   * @param x state vector, px, py, v, yaw, yawd
+   * @return z Lidar measurement space vector, px, py
+   */
+  VectorXd StateToLidarMeas(VectorXd x);
+
+  /**
+   * Convert state vector to Radar measurement space vector
+   * @param x state vector, px, py, v, yaw, yawd
+   * @return z Radar measurement space vector, rho, theta, rho_dot
+   */
+  VectorXd StateToRadarMeas(VectorXd x);
 };
 
 #endif /* UKF_H */
