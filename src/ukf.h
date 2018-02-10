@@ -71,7 +71,11 @@ public:
   bool use_NIS_;
   std::vector<double> radar_NIS_;
   std::vector<double> lidar_NIS_;
+  long radar_NIS_outliers_;
+  long lidar_NIS_outliers_;
 
+  ///* for debug
+  bool print_details_;
 
   /**
    * Constructor
@@ -128,6 +132,11 @@ public:
    * @return z Radar measurement space vector, rho, theta, rho_dot
    */
   VectorXd StateToRadarMeas(VectorXd x);
+
+  /**
+   * Confine rad values to be between -PI and PI
+   */
+  double ConfinedRad(double _x);
 };
 
 #endif /* UKF_H */
