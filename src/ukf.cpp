@@ -24,7 +24,7 @@ UKF::UKF() {
 
   /*
   // if this is false, laser measurements will be ignored (except during init)
-  use_laser_ = false;
+  use_laser_ = true;
 
   // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
@@ -33,10 +33,10 @@ UKF::UKF() {
   use_NIS_ = true;
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 30;
+  std_a_ = 0.4;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 30;
+  std_yawdd_ = 0.2;
   */
 
   // initial state vector
@@ -61,14 +61,7 @@ UKF::UKF() {
   // Radar measurement noise standard deviation radius change in m/s
   std_radrd_ = 0.3;
   //DO NOT MODIFY measurement noise values above these are provided by the sensor manufacturer.
-  
-  /**
-  TODO:
 
-  Complete the initialization. See ukf.h for other member properties.
-
-  Hint: one or more values initialized above might be wildly off...
-  */
   is_initialized_ = false;
 
   previous_timestamp_ = 0;
@@ -92,13 +85,7 @@ UKF::~UKF() {}
  * either radar or laser.
  */
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
-  /**
-  TODO:
-
-  Complete this function! Make sure you switch between lidar and radar
-  measurements.
-  */
-  if(meas_package.sensor_type_ == MeasurementPackage::LASER) {
+  if(meas_package.sensor_type_ == MeasurementPackage::LASER && print_details_) {
     cout << "Laser Observed position: " << meas_package.raw_measurements_.transpose() << endl;
   }
   if(! is_initialized_) {
@@ -112,7 +99,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     // wild guess
     P_in << 1, 0, 0, 0, 0,
             0, 1, 0, 0, 0,
-            0, 0, 100, 0, 0,
+            0, 0, 10, 0, 0,
             0, 0, 0, 10, 0,
             0, 0, 0, 0, 10;
 
@@ -137,7 +124,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     previous_timestamp_ = meas_package.timestamp_;
     is_initialized_ = true;
     cout << "Initialized!" << endl;
-    return;
   }
   else { // perform a normal predict/update cycle
     double dt = (meas_package.timestamp_ - previous_timestamp_) / 1000000.0;
@@ -145,11 +131,11 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     Prediction(dt);
     if(use_radar_ && meas_package.sensor_type_ == MeasurementPackage::RADAR) {
       // radar meas
-      UpdateRadar(meas_package);
+      Update(meas_package);
     }
     else if(use_laser_ && meas_package.sensor_type_ == MeasurementPackage::LASER) {
       // lidar meas
-      UpdateLidar(meas_package);
+      Update(meas_package);
     }
   }
 }
@@ -247,33 +233,17 @@ void UKF::Prediction(double delta_t) {
 }
 
 /**
- * Updates the state and the state covariance matrix using a laser measurement.
+ * Updates the state and the state covariance matrix using a radar or laser measurement.
  * @param {MeasurementPackage} meas_package
  */
-void UKF::UpdateLidar(MeasurementPackage meas_package) {
-  /**
-  TODO:
-
-  Complete this function! Use lidar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
-
-  You'll also need to calculate the lidar NIS.
-  */
-  UpdateCommon(meas_package);
-}
-
-/**
- * Updates the state and the state covariance matrix using a radar measurement.
- * @param {MeasurementPackage} meas_package
- */
-void UKF::UpdateRadar(MeasurementPackage meas_package) {
+void UKF::Update(MeasurementPackage meas_package) {
   /**
    * Predict measurement sigma points, mean, and covariance
    */
-  const int n_z = 3;
+  const int n_z = (meas_package.sensor_type_ == MeasurementPackage::RADAR ? 3 : 2);
   MatrixXd Zsig = MatrixXd(n_z, 2 * n_aug_ + 1);
   for (int i = 0; i < 2 * n_aug_ + 1; ++i) {
-    Zsig.col(i) = StateToRadarMeas(Xsig_pred_.col(i));
+    Zsig.col(i) = StateToMeas(Xsig_pred_.col(i), meas_package.sensor_type_);
   }
 
   //calculate mean predicted measurement
@@ -282,17 +252,23 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   for (int i = 0; i < 2 * n_aug_ + 1; ++i) {
     z_pred += weights_(i) * Zsig.col(i);
   }
-  z_pred(1) = ConfinedRad(z_pred(1));
+  if (meas_package.sensor_type_ == MeasurementPackage::RADAR) z_pred(1) = ConfinedRad(z_pred(1));
 
   //calculate innovation covariance matrix S
   MatrixXd S = MatrixXd(n_z, n_z);
-  S << std_radr_ * std_radr_, 0, 0,
-      0, std_radphi_ * std_radphi_, 0,
-      0, 0, std_radrd_ * std_radrd_;
+  if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+    S << std_radr_ * std_radr_, 0, 0,
+        0, std_radphi_ * std_radphi_, 0,
+        0, 0, std_radrd_ * std_radrd_;
+  }
+  else {
+    S << std_laspx_ * std_laspx_, 0,
+         0, std_laspy_ * std_laspy_;
+  }
 
   for (int i = 0; i < 2 * n_aug_ + 1; ++i) {
     VectorXd diff = Zsig.col(i) - z_pred;
-    diff(1) = ConfinedRad(diff(1));
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR) diff(1) = ConfinedRad(diff(1));
     S += weights_(i) * diff * diff.transpose();
   }
 
@@ -305,10 +281,11 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   T.fill(0.0);
   for (int i = 0; i < 2 * n_aug_ + 1; ++i){
     VectorXd x_diff = Xsig_pred_.col(i) - x_;
-    x_diff(3) = ConfinedRad(x_diff(3));
-
     VectorXd z_diff = Zsig.col(i) - z_pred;
-    z_diff(1) = ConfinedRad(z_diff(1));
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+      x_diff(3) = ConfinedRad(x_diff(3));
+      z_diff(1) = ConfinedRad(z_diff(1));
+    }
 
     T += weights_(i) * x_diff * z_diff.transpose();
   }
@@ -316,7 +293,9 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   MatrixXd K = T * S.inverse();
   //update state mean and covariance matrix
   VectorXd z_diff = z - z_pred;
-  z_diff(1) = ConfinedRad(z_diff(1));
+  if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+    z_diff(1) = ConfinedRad(z_diff(1));
+  }
   x_ += K * z_diff;
   P_ -= K * S * K.transpose();
 
@@ -331,25 +310,30 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
    */
   if(use_NIS_) {
     double NIS = z_diff.transpose() * S.inverse() * z_diff;
-    radar_NIS_.push_back(NIS);
-    if(NIS >= 7.815) radar_NIS_outliers_++;
-    cout << "Radar count: " << radar_NIS_.size()
-         << ". NIS value: " << NIS
-         << ". Outlier percentage: " << double(radar_NIS_outliers_) / radar_NIS_.size() << endl;
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+      radar_NIS_.push_back(NIS);
+      if (NIS >= 7.815) radar_NIS_outliers_++;
+      cout << "Radar count: " << radar_NIS_.size()
+           << ". NIS value: " << NIS
+           << ". Outlier percentage: " << double(radar_NIS_outliers_) / radar_NIS_.size() << endl;
+    }
+    else {
+      lidar_NIS_.push_back(NIS);
+      if (NIS >= 5.991) lidar_NIS_outliers_++;
+      cout << "Lidar count: " << lidar_NIS_.size()
+           << ". NIS value: " << NIS
+           << ". Outlier percentage: " << double(lidar_NIS_outliers_) / lidar_NIS_.size() << endl;
+    }
   }
 }
 
-void UKF::UpdateCommon(MeasurementPackage meas_package) {
-  // pass
-}
-
-VectorXd UKF::StateToLidarMeas(VectorXd x) {
-  VectorXd z = VectorXd(2);
-  z = x.head(2);
-  return z;
-}
-
-VectorXd UKF::StateToRadarMeas(VectorXd x) {
+/**
+ * Convert state vector to Radar or Laser measurement space vector
+ * @param x state vector, px, py, v, yaw, yawd
+ * @return z Radar measurement space vector, rho, theta, rho_dot
+ *        or Laser measurement space vector, px, py
+ */
+VectorXd UKF::StateToMeas(VectorXd x, MeasurementPackage::SensorType sensor_type) {
   double px = x(0);
   double py = x(1);
   double v  = x(2);
@@ -357,16 +341,26 @@ VectorXd UKF::StateToRadarMeas(VectorXd x) {
   double yawd = x(4);
   const double EPS = 0.00000001;
 
-  double rho = sqrt(px * px + py * py);
-  double theta;
-  if (fabs(py) < EPS && fabs(px) < EPS) theta = 0;
-  else theta = atan2(py, px);
-  double rho_dot = (px * cos(yaw) * v + py * sin(yaw) * v) / std::max(rho, EPS);
-  VectorXd z = VectorXd(3);
-  z << rho, theta, rho_dot;
+  VectorXd z;
+  if (sensor_type == MeasurementPackage::RADAR) {
+    double rho = sqrt(px * px + py * py);
+    double theta;
+    if (fabs(py) < EPS && fabs(px) < EPS) theta = 0;
+    else theta = atan2(py, px);
+    double rho_dot = (px * cos(yaw) * v + py * sin(yaw) * v) / std::max(rho, EPS);
+    z = VectorXd(3);
+    z << rho, theta, rho_dot;
+  }
+  else {
+    z = VectorXd(2);
+    z << px, py;
+  }
   return z;
 }
 
+/**
+ * Confine rad values to be between -PI and PI
+ */
 double UKF::ConfinedRad(double _x) {
   double x = _x;
   while (x > M_PI) x -= 2 * M_PI;

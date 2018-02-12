@@ -13,6 +13,9 @@ using Eigen::VectorXd;
 class UKF {
 public:
 
+  ///* for debug
+  bool print_details_;
+
   ///* initially set to false, set to true in first call of ProcessMeasurement
   bool is_initialized_;
 
@@ -74,9 +77,6 @@ public:
   long radar_NIS_outliers_;
   long lidar_NIS_outliers_;
 
-  ///* for debug
-  bool print_details_;
-
   /**
    * Constructor
    */
@@ -101,37 +101,18 @@ public:
   void Prediction(double delta_t);
 
   /**
-   * Updates the state and the state covariance matrix using a laser measurement
+   * Updates the state and the state covariance matrix using a radar or laser measurement
    * @param meas_package The measurement at k+1
    */
-  void UpdateLidar(MeasurementPackage meas_package);
+  void Update(MeasurementPackage meas_package);
 
   /**
-   * Updates the state and the state covariance matrix using a radar measurement
-   * @param meas_package The measurement at k+1
-   */
-  void UpdateRadar(MeasurementPackage meas_package);
-
-  /**
-   * Shared part that updates the state and the state covariance matrix
-   * Call by both the Lidar and Radar updates
-   * @param meas_package The measurement at k+1
-   */
-  void UpdateCommon(MeasurementPackage meas_package);
-
-  /**
-   * Convert state vector to Lidar measurement space vector
-   * @param x state vector, px, py, v, yaw, yawd
-   * @return z Lidar measurement space vector, px, py
-   */
-  VectorXd StateToLidarMeas(VectorXd x);
-
-  /**
-   * Convert state vector to Radar measurement space vector
+   * Convert state vector to Radar or Laser measurement space vector
    * @param x state vector, px, py, v, yaw, yawd
    * @return z Radar measurement space vector, rho, theta, rho_dot
+   *        or Laser measurement space vector, px, py
    */
-  VectorXd StateToRadarMeas(VectorXd x);
+  VectorXd StateToMeas(VectorXd x, MeasurementPackage::SensorType sensor_type);
 
   /**
    * Confine rad values to be between -PI and PI
